@@ -45,6 +45,30 @@ streamlit run app.py
 python test_demo.py
 ```
 
+## 🔌 Inference Providers (Run Modes)
+
+This system is designed to be **provider-agnostic**. You can run it in three different modes depending on your environment.
+
+### 1. Mock Mode (Default / Offline)
+* **Requirement:** None. Works out of the box.
+* **Description:** Uses a simulated LLM response. Perfect for testing the "Context Assembly" logic and verifying token budgets without needing a GPU or internet connection.
+* **How to run:** Select "Mock" in the Web UI sidebar or run `cli.py`.
+
+### 2. Local Ollama (Recommended for Speed)
+* **Requirement:** [Ollama](https://ollama.com/) installed locally.
+* **Setup:**
+    1.  Download Ollama.
+    2.  Pull the Llama 3.2 model: `ollama run llama3.2`
+    3.  Ensure Ollama is running (`ollama serve`).
+* **Description:** High-speed, private, local inference. Zero cost.
+
+### 3. Custom Cloud API (Serverless)
+* **Requirement:** The provided `.env` file (attached to submission email).
+* **Setup:** Place the `.env` file in the root directory.
+* **Description:** Connects to my custom hosted LLM endpoint.
+* **⚠️ Note:** This runs on "on-demand" serverless infrastructure. The first request may take **30-60 seconds** (Cold Start) while the instance wakes up. Subsequent requests will be fast.
+
+
 ## 📊 System Architecture
 
 ```
