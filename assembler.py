@@ -1,8 +1,15 @@
 from rag_core import BUDGETS, count_tokens, smart_truncate
-import math
 import json
 import os
-from collections import Counter
+import warnings
+
+try:
+    import chromadb
+    from chromadb.config import Settings
+    CHROMADB_AVAILABLE = True
+except ImportError:
+    CHROMADB_AVAILABLE = False
+    warnings.warn("ChromaDB not installed. Install with: pip install chromadb sentence-transformers")
 
 # --- 1. LOAD KNOWLEDGE BASE FROM JSON (THE "RETRIEVAL" SOURCE) ---
 
@@ -77,56 +84,101 @@ def get_fallback_cv_data():
 # Load CV data on module import
 CV_DATA = load_cv_data()
 
+# --- 2. INITIALIZE CHROMADB VECTOR DATABASE ---
 
-def bm25_score(query_terms, doc_text, all_docs, k1=1.5, b=0.75):
+def initialize_chromadb():
+    """Initialize ChromaDB with sentence-transformers embeddings."""
+    if not CHROMADB_AVAILABLE:
+        print("Warning: ChromaDB not available. Install with: pip install chromadb sentence-transformers")
+        return None, {}
+    
+    try:
+        # Create ChromaDB client with persistent storage
+        client = chromadb.EphemeralClient()
+        
+        # Create or get collection with default embedding function
+        # ChromaDB uses sentence-transformers by default (all-MiniLM-L6-v2)
+        # all-MiniLM-L6-v2: 384-dimensional embeddings, excellent for semantic search
+        collection = client.get_or_create_collection(
+            name="cv_documents",
+            metadata={"hnsw:space": "cosine"}  # Use cosine similarity for embeddings
+        )
+        
+        # Add documents to the collection
+        # ChromaDB will automatically embed them using all-MiniLM-L6-v2
+        doc_ids = [f"doc_{i}" for i in range(len(CV_DATA))]
+        collection.add(
+            ids=doc_ids,
+            documents=CV_DATA,
+            metadatas=[{"source": "cv_data", "index": i} for i in range(len(CV_DATA))]
+        )
+        
+        print(f"✅ ChromaDB initialized with {len(CV_DATA)} documents using all-MiniLM-L6-v2 embeddings")
+        return client, {"collection": collection, "doc_ids": doc_ids}
+    except Exception as e:
+        print(f"Error initializing ChromaDB: {e}")
+        print("Falling back to keyword search.")
+        return None, {}
+
+# Initialize ChromaDB on module import
+CHROMADB_CLIENT = None
+CHROMADB_CONFIG = {}
+
+if CHROMADB_AVAILABLE:
+    try:
+        CHROMADB_CLIENT, CHROMADB_CONFIG = initialize_chromadb()
+    except Exception as e:
+        print(f"Warning: ChromaDB initialization failed: {e}")
+
+
+def vector_search(user_query, corpus=None, top_k=3):
     """
-    Calculate BM25 relevance score for a document against a query.
-    This is a simple implementation of the BM25 ranking algorithm.
+    Retrieve documents using ChromaDB vector similarity search.
+    Uses sentence-transformers embeddings (all-MiniLM-L6-v2) for semantic matching.
     
     Args:
-        query_terms: List of query tokens
-        doc_text: Document text to score
-        all_docs: All documents (for IDF calculation)
-        k1, b: BM25 parameters (default values are standard)
+        user_query: User's search query
+        corpus: Ignored (uses CV_DATA from ChromaDB)
+        top_k: Number of top results to return
     
     Returns:
-        BM25 score (higher = more relevant)
+        List of (document, similarity_score) tuples, sorted by relevance
     """
-    # Tokenize document
-    doc_terms = doc_text.lower().split()
-    doc_length = len(doc_terms)
+    if not CHROMADB_AVAILABLE or not CHROMADB_CLIENT:
+        print("ChromaDB not available. Falling back to keyword search.")
+        return keyword_search(user_query, corpus or CV_DATA, top_k)
     
-    if doc_length == 0:
-        return 0.0
-    
-    # Calculate average document length
-    avg_doc_length = sum(len(d.lower().split()) for d in all_docs) / len(all_docs)
-    
-    score = 0.0
-    term_counts = Counter(doc_terms)
-    
-    for term in query_terms:
-        if term not in term_counts:
-            continue
+    try:
+        collection = CHROMADB_CONFIG.get("collection")
+        if not collection:
+            return keyword_search(user_query, corpus or CV_DATA, top_k)
         
-        # Term frequency in document
-        tf = term_counts[term]
+        # Query the collection - ChromaDB returns distances, we convert to similarity scores
+        results = collection.query(
+            query_texts=[user_query],
+            n_results=top_k,
+            include=["documents", "distances", "metadatas"]
+        )
         
-        # Inverse document frequency
-        docs_with_term = sum(1 for doc in all_docs if term.lower() in doc.lower())
-        idf = math.log((len(all_docs) - docs_with_term + 0.5) / (docs_with_term + 0.5) + 1.0)
+        # Convert distances to similarity scores (1 - distance for cosine)
+        # ChromaDB returns distances in [0, 2] for cosine, so similarity = 1 - distance
+        documents = results["documents"][0] if results["documents"] else []
+        distances = results["distances"][0] if results["distances"] else []
         
-        # BM25 formula
-        numerator = tf * (k1 + 1)
-        denominator = tf + k1 * (1 - b + b * (doc_length / avg_doc_length))
-        score += idf * (numerator / denominator)
+        # Convert distances to similarity scores (higher is better)
+        similarity_scores = [1 - dist for dist in distances]
+        
+        return list(zip(documents, similarity_scores))
     
-    return score
+    except Exception as e:
+        print(f"Vector search failed: {e}. Falling back to keyword search.")
+        return keyword_search(user_query, corpus or CV_DATA, top_k)
 
 
-def semantic_search(user_query, corpus, top_k=3):
+def keyword_search(user_query, corpus, top_k=3):
     """
-    Retrieve the most relevant documents using BM25 scoring.
+    Fallback keyword-based search using simple substring matching.
+    Used when ChromaDB is not available.
     
     Args:
         user_query: User's search query
@@ -134,20 +186,39 @@ def semantic_search(user_query, corpus, top_k=3):
         top_k: Number of top results to return
     
     Returns:
-        List of (document, score) tuples, sorted by relevance
+        List of (document, relevance_score) tuples
     """
-    # Tokenize and clean query
-    query_terms = [term.lower() for term in user_query.split()]
+    query_lower = user_query.lower()
+    query_terms = query_lower.split()
     
-    # Score all documents
     scores = []
     for doc in corpus:
-        score = bm25_score(query_terms, doc, corpus)
-        scores.append((doc, score))
+        doc_lower = doc.lower()
+        # Simple scoring: count matching terms
+        score = sum(1 for term in query_terms if term in doc_lower)
+        scores.append((doc, float(score)))
     
-    # Sort by score and return top_k
     scores.sort(key=lambda x: x[1], reverse=True)
     return scores[:top_k]
+
+
+def semantic_search(user_query, corpus=None, top_k=3):
+    """
+    Main retrieval function - uses vector search via ChromaDB.
+    Falls back to keyword search if ChromaDB is not available.
+    
+    Args:
+        user_query: User's search query
+        corpus: Ignored (uses CV_DATA from ChromaDB)
+        top_k: Number of top results to return
+    
+    Returns:
+        List of (document, score) tuples, sorted by relevance (highest first)
+    """
+    if CHROMADB_AVAILABLE and CHROMADB_CLIENT:
+        return vector_search(user_query, corpus, top_k)
+    else:
+        return keyword_search(user_query, corpus or CV_DATA, top_k)
 
 
 def build_context_window(user_query, chat_history):
@@ -170,11 +241,12 @@ def build_context_window(user_query, chat_history):
     sections['instructions'] = smart_truncate(sys_prompt, BUDGETS['instructions'], "keep_start")
 
     # --- STEP 2: RETRIEVAL (Budget: 550) ---
-    # Strategy: BM25 Semantic Search -> Then 'keep_start' if it overflows
-    # Why: We use BM25 ranking to find the most relevant docs by relevance score.
+    # Strategy: Vector Semantic Search (ChromaDB) -> Then 'keep_start' if it overflows
+    # Why: We use sentence-transformers embeddings (all-MiniLM-L6-v2) for semantic matching.
+    #      This finds documents based on meaning, not just keywords.
     #      If too many results, we keep the highest-scoring (most relevant) ones.
     
-    # Perform semantic search using BM25
+    # Perform semantic vector search using ChromaDB
     search_results = semantic_search(user_query, CV_DATA, top_k=5)
     
     # Extract just the documents (with scores for debugging)
@@ -183,10 +255,12 @@ def build_context_window(user_query, chat_history):
     else:
         # Fallback: Show general summary (first 3 lines)
         hits = CV_DATA[:3]
+        search_results = [(doc, 0.0) for doc in hits]
     
     # Build retrieval section with metadata
-    raw_retrieval = "RELEVANT CV DATA:\n" + "\n".join(
-        f"- {doc} (relevance score: {score:.2f})" 
+    retrieval_method = "Vector Search (ChromaDB/all-MiniLM-L6-v2)" if CHROMADB_AVAILABLE else "Keyword Search"
+    raw_retrieval = f"RELEVANT CV DATA ({retrieval_method}):\n" + "\n".join(
+        f"- {doc} (similarity: {score:.2f})" 
         if score > 0 else f"- {doc}"
         for doc, score in search_results
     )

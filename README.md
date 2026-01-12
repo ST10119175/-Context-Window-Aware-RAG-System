@@ -10,7 +10,7 @@ A sophisticated RAG (Retrieval-Augmented Generation) system that demonstrates **
 ## 🎯 Key Features
 
 - ✅ **Strict Budget Enforcement** - 3,215 token context window with 5 distinct sections
-- ✅ **BM25 Semantic Search** - Industry-standard retrieval (Elasticsearch/MongoDB algorithm)
+- ✅ **ChromaDB Vector Search** - Neural embedding-based retrieval (sentence-transformers)
 - ✅ **Smart Truncation** - Context-aware strategies (`keep_start`/`keep_end`)
 - ✅ **Graceful Overflow Handling** - Tested with 2-10x budget overflow scenarios
 - ✅ **Multiple Interfaces** - CLI, Web UI, and automated testing suite
@@ -66,7 +66,7 @@ python test_demo.py
 | **Instructions** | 255 | `keep_start` | System persona & role definition |
 | **Goal** | 1,500 | `keep_end` | Conversation history (sliding window) |
 | **Memory** | 55 | `keep_start` | Critical static facts |
-| **Retrieval** | 550 | `keep_start` | Dynamic knowledge (BM25 ranked) |
+| **Retrieval** | 550 | `keep_start` | Dynamic knowledge (vector similarity ranked) |
 | **Tool Outputs** | 855 | `keep_end` | System logs & status |
 
 ## 💡 Real-World Example
@@ -98,7 +98,7 @@ Nyiko-chatbot/
 │
 ├── Core System/
 │   ├── rag_core.py          # Token counting & truncation engine
-│   ├── assembler.py         # Context assembly & BM25 search
+│   ├── assembler.py         # Context assembly & vector search (ChromaDB)
 │   └── cv_data.json         # Knowledge corpus
 │
 ├── Interfaces/
@@ -121,13 +121,14 @@ Nyiko-chatbot/
 
 ## 🔬 Technical Highlights
 
-### 1. BM25 Retrieval Algorithm
+### 1. ChromaDB Vector Search
 ```python
-BM25 = IDF × (TF × (k1 + 1)) / (TF + k1 × (1 - b + b × (doc_len/avg_len)))
+# Semantic similarity using sentence-transformers embeddings
+similarity_score = cosine_similarity(query_embedding, document_embedding)
 ```
-- Industry standard (used by Elasticsearch, MongoDB)
-- Avoids length bias
-- Relevance-based ranking
+- Uses all-MiniLM-L6-v2 embeddings (384-dimensional vectors)
+- Understands semantic meaning beyond keywords
+- Neural network-based semantic matching
 
 ### 2. Smart Truncation Strategies
 
@@ -184,9 +185,9 @@ python test_demo.py
 ### For Technical Recruiters:
 - **System Design** - Clean architecture with separation of concerns
 - **Cost Optimization** - Real business value (60-80% savings)
-- **Algorithm Knowledge** - BM25 is enterprise-standard
+- **AI/ML Knowledge** - Vector embeddings + semantic search with ChromaDB
 - **Production Ready** - Comprehensive error handling & testing
-- **Full Stack** - Backend logic + CLI + Web UI
+- **Full Stack** - Backend logic + CLI + Web UI + Vector DB
 
 ### For Engineering Teams:
 - **Token Economics** - Understanding LLM cost models
@@ -216,19 +217,23 @@ BUDGETS = {
 ```
 
 ### Knowledge Base
-Replace `cv_data.json` with your own data or integrate vector databases:
+ChromaDB is already integrated for vector search! To customize embeddings:
 ```python
-# In assembler.py
-def semantic_search(query, corpus, top_k=3):
-    # Replace with ChromaDB, Pinecone, etc.
-    results = vector_db.query(query, n_results=top_k)
+# In assembler.py - Uses ChromaDB with sentence-transformers
+def vector_search(query, corpus=None, top_k=3):
+    # Automatically embeds query using sentence-transformers
+    results = collection.query(
+        query_texts=[query],
+        n_results=top_k,
+        include=["documents", "distances"]
+    )
     return results
 ```
 
 ## 🎓 Key Learnings Demonstrated
 
 1. **Context Economics** - Token budgets enforce cost predictability
-2. **Information Retrieval** - BM25 ranking matches enterprise systems
+2. **Information Retrieval** - Vector embeddings enable semantic understanding
 3. **Strategic Truncation** - Different data types need different strategies
 4. **Graceful Degradation** - System handles edge cases without crashing
 5. **Deterministic AI** - Same input = same output (reproducible)
