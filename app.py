@@ -26,29 +26,56 @@ VERCEL_API_KEY = os.getenv("VERCEL_API_KEY")
 st.set_page_config(layout="wide", page_title="Nyiko's Context-Aware RAG")
 
 # --- HEADER ---
-st.title("🧠 Context-Window-Aware RAG System")
+st.title("🧠 Context-Window-Aware RAG System with Vector Search")
 st.markdown("""
-**Assessment Goal:** Demonstrate strict adherence to token budgets ('Context Economics') 
-before sending data to the LLM.
-* **Architecture:** Python Assembler (Logic) + Ollama (Inference)
-* **Budgets:** Instructions (255), Goal (1500), Retrieval (550), Tools (855), Memory (55)
+**Demonstrates Enterprise-Grade Context Economics** through strict token budget enforcement.
+
+**Key Features:**
+- **Vector Semantic Search** - ChromaDB with all-MiniLM-L6-v2 embeddings (384-dimensional)
+- **Strict Budget Enforcement** - 3,215 token context window across 5 sections
+- **Smart Truncation** - Context-aware strategies (keep_start/keep_end)
+- **Production Ready** - Deterministic, auditable, reproducible
 """)
 st.divider()
 
 # Provider selection
 with st.sidebar:
-    st.subheader("Inference Provider")
+    st.subheader("⚙️ Configuration")
+    
+    # Retrieval info
+    from assembler import CHROMADB_AVAILABLE
+    st.markdown("**Retrieval Engine:**")
+    if CHROMADB_AVAILABLE:
+        st.success("✅ ChromaDB Vector Search Active")
+        st.caption("Model: all-MiniLM-L6-v2 (384-dim embeddings)")
+    else:
+        st.warning("⚠️ Fallback: Keyword Search")
+    
+    st.divider()
+    
+    # Inference provider
+    st.markdown("**Inference Provider:**")
     provider = st.selectbox(
         "Choose backend",
-        options=["Ollama", "Vercel API", "Mock"],
+        options=["Mock", "Ollama", "Vercel API"],
         index=0,
     )
     if provider == "Ollama":
-        st.caption(f"URL: {OLLAMA_URL}")
-        st.caption(f"Model: {MODEL_NAME}")
+        st.caption(f"🔗 URL: {OLLAMA_URL}")
+        st.caption(f"📦 Model: {MODEL_NAME}")
     elif provider == "Vercel API":
-        st.caption(f"URL: {VERCEL_CHAT_URL}")
-        st.caption("Header: X-API-Key (from env)")
+        st.caption(f"🔗 URL: {VERCEL_CHAT_URL}")
+        st.caption("🔑 Header: X-API-Key")
+    else:
+        st.caption("📋 Mock mode (no external service)")
+    
+    st.divider()
+    st.markdown("**Budget Allocation:**")
+    st.caption("Instructions: 255 tokens (7.9%)")
+    st.caption("Goal: 1,500 tokens (46.7%)")
+    st.caption("Retrieval: 550 tokens (17.1%)")
+    st.caption("Tools: 855 tokens (26.6%)")
+    st.caption("Memory: 55 tokens (1.7%)")
 
 # --- SESSION STATE (Chat History) ---
 if "history" not in st.session_state:
@@ -62,7 +89,8 @@ if "messages" not in st.session_state:
 col_chat, col_debug = st.columns([3, 2])
 
 with col_chat:
-    st.subheader("💬 Interview Simulator")
+    st.subheader("💬 Conversational Interface")
+    st.caption("Ask about Nyiko Shabangu's experience - context assembled with strict token budgets")
     
     # Display Chat Log
     for msg in st.session_state.messages:
@@ -70,7 +98,7 @@ with col_chat:
             st.markdown(msg["content"])
 
     # User Input
-    user_input = st.chat_input("Ask about Nyiko's experience...")
+    user_input = st.chat_input("E.g., 'Tell me about your AI experience' or 'What cloud technologies do you know?'")
 
     if user_input:
         # 1. DISPLAY USER MESSAGE
@@ -234,11 +262,18 @@ with col_debug:
             st.code(final_prompt, language="markdown")
             
         # Show retrieval details
-        with st.expander("🔍 Retrieval Details"):
+        with st.expander("🔍 Vector Retrieval Details"):
             from assembler import semantic_search
             search_results = semantic_search(user_input, CV_DATA, top_k=5)
-            st.markdown("**Top Retrieved Documents (by BM25 relevance):**")
+            
+            if CHROMADB_AVAILABLE:
+                st.markdown("**Top Retrieved Documents (Vector Similarity - all-MiniLM-L6-v2):**")
+                st.caption("📊 Ranked by semantic meaning, not just keywords")
+            else:
+                st.markdown("**Top Retrieved Documents (Keyword Match):**")
+                st.caption("⚠️ Fallback search (ChromaDB not available)")
+            
             for idx, (doc, score) in enumerate(search_results, 1):
-                st.caption(f"[{idx}] Score: {score:.3f} → {doc}")
+                st.caption(f"[{idx}] Similarity: {score:.3f} → {doc}")
     else:
         st.markdown("*Waiting for first query...*")
