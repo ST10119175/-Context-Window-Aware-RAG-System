@@ -1,0 +1,238 @@
+from rag_core import BUDGETS, count_tokens, smart_truncate
+import math
+import json
+import os
+from collections import Counter
+
+# --- 1. LOAD KNOWLEDGE BASE FROM JSON (THE "RETRIEVAL" SOURCE) ---
+
+def load_cv_data():
+    """Load CV data from cv_data.json and flatten into searchable documents."""
+    json_path = os.path.join(os.path.dirname(__file__), 'cv_data.json')
+    
+    try:
+        with open(json_path, 'r', encoding='utf-8') as f:
+            cv_json = json.load(f)
+    except FileNotFoundError:
+        print(f"Warning: cv_data.json not found at {json_path}. Using fallback data.")
+        return get_fallback_cv_data()
+    except json.JSONDecodeError:
+        print(f"Warning: cv_data.json is invalid JSON. Using fallback data.")
+        return get_fallback_cv_data()
+    
+    # Extract searchable documents from JSON structure
+    documents = []
+    
+    # Add summary if available
+    if 'summary' in cv_json:
+        documents.append(cv_json['summary'])
+    
+    # Add experience highlights
+    if 'experience' in cv_json:
+        for exp in cv_json['experience']:
+            if 'role' in exp and 'company' in exp:
+                documents.append(f"{exp.get('role')} at {exp.get('company')}: {' '.join(exp.get('highlights', []))}")
+    
+    # Add skills
+    if 'skills' in cv_json:
+        for skill_cat in cv_json['skills']:
+            if 'skills' in skill_cat:
+                documents.append(f"Skills in {skill_cat.get('category', 'General')}: {', '.join(skill_cat['skills'])}")
+    
+    # Add education
+    if 'education' in cv_json:
+        for edu in cv_json['education']:
+            documents.append(f"Degree: {edu.get('degree')} from {edu.get('institution')}")
+    
+    # Add certifications
+    if 'certifications' in cv_json:
+        for cert in cv_json['certifications']:
+            documents.append(f"Certification: {cert.get('name')} ({cert.get('status', 'Completed')})")
+    
+    # Add personal info
+    if 'personal_info' in cv_json:
+        personal = cv_json['personal_info']
+        documents.append(f"Name: {personal.get('name')}, Role: {personal.get('role')}, Location: {personal.get('location')}")
+        if 'links' in personal:
+            documents.append(f"Portfolio: {personal['links'].get('portfolio', 'N/A')}")
+    
+    # Return flattened searchable documents, fallback to summary if empty
+    return documents if documents else get_fallback_cv_data()
+
+def get_fallback_cv_data():
+    """Fallback CV data if JSON cannot be loaded."""
+    return [
+        "Nyiko Shabangu is an AI Engineer and Software Developer based in Centurion, South Africa.",
+        "He specializes in Python, Vertex AI, Dialogflow, and AWS cloud architecture.",
+        "He currently works at GotBot AI (starting June 2025) developing Multi-Agent LLM systems.",
+        "He built a 'RAG Anime Discovery Engine' using LangChain and ChromaDB.",
+        "He holds a Bachelor of Computer and Information Sciences in Application Development.",
+        "He is an AWS Cloud Practitioner and is actively pursuing the Solutions Architect certification.",
+        "He previously managed auctions for Kelani Auctions, optimizing revenue by 15%.",
+        "He is fluent in English and Xitsonga.",
+        "He has experience modding RPG games (Skyrim) using JSON and scripting.",
+        "Contact Him at www.nyiko.co.za"
+    ]
+
+# Load CV data on module import
+CV_DATA = load_cv_data()
+
+
+def bm25_score(query_terms, doc_text, all_docs, k1=1.5, b=0.75):
+    """
+    Calculate BM25 relevance score for a document against a query.
+    This is a simple implementation of the BM25 ranking algorithm.
+    
+    Args:
+        query_terms: List of query tokens
+        doc_text: Document text to score
+        all_docs: All documents (for IDF calculation)
+        k1, b: BM25 parameters (default values are standard)
+    
+    Returns:
+        BM25 score (higher = more relevant)
+    """
+    # Tokenize document
+    doc_terms = doc_text.lower().split()
+    doc_length = len(doc_terms)
+    
+    if doc_length == 0:
+        return 0.0
+    
+    # Calculate average document length
+    avg_doc_length = sum(len(d.lower().split()) for d in all_docs) / len(all_docs)
+    
+    score = 0.0
+    term_counts = Counter(doc_terms)
+    
+    for term in query_terms:
+        if term not in term_counts:
+            continue
+        
+        # Term frequency in document
+        tf = term_counts[term]
+        
+        # Inverse document frequency
+        docs_with_term = sum(1 for doc in all_docs if term.lower() in doc.lower())
+        idf = math.log((len(all_docs) - docs_with_term + 0.5) / (docs_with_term + 0.5) + 1.0)
+        
+        # BM25 formula
+        numerator = tf * (k1 + 1)
+        denominator = tf + k1 * (1 - b + b * (doc_length / avg_doc_length))
+        score += idf * (numerator / denominator)
+    
+    return score
+
+
+def semantic_search(user_query, corpus, top_k=3):
+    """
+    Retrieve the most relevant documents using BM25 scoring.
+    
+    Args:
+        user_query: User's search query
+        corpus: List of documents to search
+        top_k: Number of top results to return
+    
+    Returns:
+        List of (document, score) tuples, sorted by relevance
+    """
+    # Tokenize and clean query
+    query_terms = [term.lower() for term in user_query.split()]
+    
+    # Score all documents
+    scores = []
+    for doc in corpus:
+        score = bm25_score(query_terms, doc, corpus)
+        scores.append((doc, score))
+    
+    # Sort by score and return top_k
+    scores.sort(key=lambda x: x[1], reverse=True)
+    return scores[:top_k]
+
+
+def build_context_window(user_query, chat_history):
+    """
+    The 'Brain' of the operation. 
+    It assembles the final prompt by enforcing strict token budgets 
+    per section using the rules defined in rag_core.
+    """
+    sections = {}
+
+    # --- STEP 1: INSTRUCTIONS (Budget: 255) ---
+    # Strategy: 'keep_start' 
+    # Why: The core persona definition is usually at the very beginning.
+    sys_prompt = (
+        "You are an AI assistant representing Nyiko Shabangu. "
+        "Answer questions accurately based ONLY on the provided Context. "
+        "If the answer is not in the context, say you don't know. "
+        "Be professional, concise, and highlight his engineering skills."
+    )
+    sections['instructions'] = smart_truncate(sys_prompt, BUDGETS['instructions'], "keep_start")
+
+    # --- STEP 2: RETRIEVAL (Budget: 550) ---
+    # Strategy: BM25 Semantic Search -> Then 'keep_start' if it overflows
+    # Why: We use BM25 ranking to find the most relevant docs by relevance score.
+    #      If too many results, we keep the highest-scoring (most relevant) ones.
+    
+    # Perform semantic search using BM25
+    search_results = semantic_search(user_query, CV_DATA, top_k=5)
+    
+    # Extract just the documents (with scores for debugging)
+    if search_results:
+        hits = [doc for doc, score in search_results]
+    else:
+        # Fallback: Show general summary (first 3 lines)
+        hits = CV_DATA[:3]
+    
+    # Build retrieval section with metadata
+    raw_retrieval = "RELEVANT CV DATA:\n" + "\n".join(
+        f"- {doc} (relevance score: {score:.2f})" 
+        if score > 0 else f"- {doc}"
+        for doc, score in search_results
+    )
+    
+    sections['retrieval'] = smart_truncate(raw_retrieval, BUDGETS['retrieval'], "keep_start")
+
+    # --- STEP 3: TOOLS / SYSTEM LOGS (Budget: 855) ---
+    # Strategy: 'keep_end'
+    # Why: We only care about the most recent tool execution (e.g., the last API call status).
+    # Mocking a tool log for demonstration:
+    mock_tools = f"[System Log] Processing query: '{user_query}'... Retrieval complete. 3 documents found."
+    sections['tool_outputs'] = smart_truncate(mock_tools, BUDGETS['tool_outputs'], "keep_end")
+
+    # --- STEP 4: MEMORY (Budget: 55) ---
+    # Strategy: 'keep_start'
+    # Why: This is for high-density, static facts that must never be forgotten.
+    static_memory = "Role: Job Candidate Bot. Location: ZA. Status: Hired."
+    sections['memory'] = smart_truncate(static_memory, BUDGETS['memory'], "keep_start")
+
+    # --- STEP 5: GOAL / CONVERSATION HISTORY (Budget: 1500) ---
+    # Strategy: 'keep_end' (Sliding Window)
+    # Why: In a chat, the most recent message is the most important. We drop old turns.
+    full_conversation = chat_history + f"\nUser: {user_query}"
+    sections['goal'] = smart_truncate(full_conversation, BUDGETS['goal'], "keep_end")
+
+    # --- STEP 6: FINAL ASSEMBLY ---
+    # We construct the final string that goes to the LLM.
+    # Note how we label sections clearly for the model.
+    final_prompt = f"""
+    ### SYSTEM INSTRUCTIONS
+    {sections['instructions']}
+
+    ### LONG TERM MEMORY
+    {sections['memory']}
+
+    ### CONTEXT (RETRIEVED KNOWLEDGE)
+    {sections['retrieval']}
+
+    ### SYSTEM TOOLS
+    {sections['tool_outputs']}
+
+    ### CONVERSATION HISTORY
+    {sections['goal']}
+    
+    ### ASSISTANT RESPONSE:
+    """
+    
+    # Return both the prompt (for the LLM) and the sections (for the Dashboard UI)
+    return final_prompt, sections

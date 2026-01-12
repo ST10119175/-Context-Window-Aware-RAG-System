@@ -1,0 +1,114 @@
+{
+  "personal_info": {
+    "name": "Nyiko Shabangu",
+    "role": "AI Engineer and Software Developer",
+    "location": "Centurion, South Africa",
+    "links": {
+      "portfolio": "www.nyiko.co.za",
+      "github": "https://github.com/Nyiko-Shabangu",
+      "linkedin": "https://www.linkedin.com/in/nyikoshabangu/"
+    }
+  },
+  "summary": "AI Engineer and Software Developer specializing in building intelligent systems. Expertise in Python, Vertex AI, Dialogflow, and AWS cloud architecture with a focus on RAG systems and multi-agent LLM applications.",
+  "experience": [
+    {
+      "role": "AI Solutions Developer",
+      "company": "GotBot AI",
+      "period": "Jun 2025 – Present",
+      "highlights": [
+        "Engineered custom Multi-Agent LLM systems using Google Vertex AI and RAG pipelines",
+        "Architected secure integrations between conversational agents and Enterprise systems via RESTful APIs",
+        "Reduced issue resolution time by 40% through structured logging and automated workflows"
+      ]
+    },
+    {
+      "role": "AI Trainer",
+      "company": "Outlier AI",
+      "period": "Jan 2025 – Jun 2025",
+      "highlights": [
+        "Developed gold standard code solutions to train LLMs on algorithmic challenges",
+        "Conducted RLHF analysis of AI-generated code for security and logical issues",
+        "Performed adversarial testing and red teaming for safety validation"
+      ]
+    },
+    {
+      "role": "Web Developer",
+      "company": "Kelani Auctions",
+      "period": "Previous",
+      "highlights": [
+        "Managed auction systems and optimized revenue by 15%",
+        "Built auction management platform with real-time updates"
+      ]
+    }
+  ],
+  "projects": [
+    {
+      "title": "RAG Anime Discovery Engine",
+      "description": "Built using LangChain and ChromaDB for semantic search and retrieval",
+      "technologies": ["LangChain", "ChromaDB", "Python"]
+    },
+    {
+      "title": "Multi-Agent LLM Systems",
+      "description": "Custom agents using Google Vertex AI with enterprise integrations",
+      "technologies": ["Vertex AI", "Dialogflow", "Python"]
+    },
+    {
+      "title": "RPG Game Modding",
+      "description": "Skyrim mods and game scripting using JSON configuration",
+      "technologies": ["JSON", "Game Scripting"]
+    }
+  ],
+  "skills": {
+    "ai_nlp": [
+      "Google Vertex AI",
+      "Dialogflow",
+      "RAG Architectures",
+      "Prompt Engineering",
+      "LangChain",
+      "ChromaDB",
+      "Llama 3.2"
+    ],
+    "programming": [
+      "Python",
+      "JavaScript",
+      "TypeScript",
+      "C#",
+      "SQL"
+    ],
+    "backend": [
+      "FastAPI",
+      "Node.js",
+      ".NET Core",
+      "RESTful APIs",
+      "Serverless"
+    ],
+    "cloud": [
+      "AWS",
+      "GCP",
+      "Azure",
+      "Docker",
+      "GitHub Actions"
+    ]
+  },
+  "education": [
+    {
+      "degree": "Bachelor of Computer and Information Sciences",
+      "field": "Application Development",
+      "institution": "Varsity College"
+    }
+  ],
+  "certifications": [
+    {
+      "name": "AWS Cloud Practitioner",
+      "status": "Completed"
+    },
+    {
+      "name": "AWS Solutions Architect - Associate",
+      "status": "In Progress"
+    }
+  ],
+  "languages": [
+    "English",
+    "Xitsonga"
+  ]
+}
